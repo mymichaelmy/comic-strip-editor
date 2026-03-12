@@ -30,7 +30,9 @@ export default function App() {
 
   const onUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
-    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
+    const files = Array.from(fileList)
+      .filter((f) => f.type.startsWith('image/'))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
     if (files.length === 0) return
 
     setLoading(true)
