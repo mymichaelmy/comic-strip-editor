@@ -113,6 +113,20 @@ export default function App() {
             setThumbs((prev) => prev.filter((t) => t.rectId !== id))
             if (activeRectId === id) setActiveRectId(null)
           }}
+          onReorder={(from, to) => {
+            setRects((prev) => {
+              const next = [...prev]
+              const [moved] = next.splice(from, 1)
+              next.splice(to, 0, moved)
+              return next
+            })
+            setThumbs((prev) => {
+              const next = [...prev]
+              const [moved] = next.splice(from, 1)
+              next.splice(to, 0, moved)
+              return next
+            })
+          }}
         />
       </div>
     </div>

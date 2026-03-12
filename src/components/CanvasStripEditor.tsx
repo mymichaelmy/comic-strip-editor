@@ -302,8 +302,16 @@ export default function CanvasStripEditor({
 
     const output: ThumbItem[] = []
     for (const rect of rectsRef.current) {
+      // Snap rect to integer pixel boundaries so all intersection math is exact
+      const rx = Math.round(rect.x)
+      const ry = Math.round(rect.y)
+      const rRight  = Math.round(rect.x + rect.width)
+      const rBottom = Math.round(rect.y + rect.height)
+      const rw = rRight - rx
+      const rh = rBottom - ry
+
       const targetW = 180
-      const targetH = Math.max(1, Math.round(rect.height * (targetW / rect.width)))
+      const targetH = Math.max(1, Math.round(rh * (targetW / rw)))
 
       const canvas = document.createElement('canvas')
       canvas.width = targetW
@@ -317,30 +325,33 @@ export default function CanvasStripEditor({
       for (const src of preview.sources) {
         const imgY = Math.round(src.offsetY * preview.scale)
         const imgBottom = Math.round((src.offsetY + src.height) * preview.scale)
-        const imgH = imgBottom - imgY
         const imgW = Math.round(src.width * preview.scale)
         const imgX = Math.round((preview.width - imgW) / 2)
 
-        if (imgY + imgH <= rect.y || imgY >= rect.y + rect.height) continue
-        if (imgX + imgW <= rect.x || imgX >= rect.x + rect.width) continue
+        if (imgBottom <= ry || imgY >= rBottom) continue
+        if (imgX + imgW <= rx || imgX >= rRight) continue
 
-        // Intersection in image-space
-        const intX = Math.max(rect.x, imgX)
-        const intY = Math.max(rect.y, imgY)
-        const intW = Math.min(rect.x + rect.width, imgX + imgW) - intX
-        const intH = Math.min(rect.y + rect.height, imgY + imgH) - intY
+        // Intersection in image-space (all integers now)
+        const intX = Math.max(rx, imgX)
+        const intY = Math.max(ry, imgY)
+        const intR = Math.min(rRight, imgX + imgW)
+        const intB = Math.min(rBottom, imgBottom)
+        const intW = intR - intX
+        const intH = intB - intY
 
-        ctx.drawImage(
-          src.bitmap,
-          (intX - imgX) / preview.scale,     // src x in original px
-          (intY - imgY) / preview.scale,     // src y in original px
-          intW / preview.scale,               // src w in original px
-          intH / preview.scale,               // src h in original px
-          ((intX - rect.x) / rect.width) * targetW,
-          ((intY - rect.y) / rect.height) * targetH,
-          (intW / rect.width) * targetW,
-          (intH / rect.height) * targetH,
-        )
+        // Derive dst edges independently — guaranteed exact integer adjacency
+        const dstL = Math.round(((intX - rx) / rw) * targetW)
+        const dstT = Math.round(((intY - ry) / rh) * targetH)
+        const dstR = Math.round(((intR - rx) / rw) * targetW)
+        const dstB = Math.round(((intB - ry) / rh) * targetH)
+        // Clamp source region to actual bitmap bounds — prevents sub-pixel overshoot
+        // that occurs when (intH / scale) slightly exceeds the bitmap edge due to
+        // float rounding in the Math.round(offsetY * scale) boundary computation.
+        const srcX = Math.max(0, (intX - imgX) / preview.scale)
+        const srcY = Math.max(0, (intY - imgY) / preview.scale)
+        const srcW = Math.min(src.width  - srcX, intW / preview.scale)
+        const srcH = Math.min(src.height - srcY, intH / preview.scale)
+        ctx.drawImage(src.bitmap, srcX, srcY, srcW, srcH, dstL, dstT, dstR - dstL, dstB - dstT)
       }
 
       output.push({
@@ -570,25 +581,34 @@ export default function CanvasStripEditor({
       const dx = (local.x - pointerStartRef.current.x) / viewRef.current.zoom
       const dy = (local.y - pointerStartRef.current.y) / viewRef.current.zoom
 
-      let { x, y, width, height } = origin
+      // Fixed opposite edges — these never move regardless of clamping
+      const fixedRight  = origin.x + origin.width
+      const fixedBottom = origin.y + origin.height
+      const fixedLeft   = origin.x
+      const fixedTop    = origin.y
 
-      // Adjust edges based on which handle is being dragged
-      if (handle.includes('l')) { x = origin.x + dx; width = origin.width - dx }
-      if (handle.includes('r')) { width = origin.width + dx }
-      if (handle.includes('t')) { y = origin.y + dy; height = origin.height - dy }
-      if (handle.includes('b')) { height = origin.height + dy }
+      let x = origin.x, y = origin.y, width = origin.width, height = origin.height
 
-      // Enforce minimum size
-      if (width < MIN_RECT_SIZE) {
-        if (handle.includes('l')) x = origin.x + origin.width - MIN_RECT_SIZE
-        width = MIN_RECT_SIZE
+      if (handle.includes('l')) {
+        const newLeft = Math.max(0, Math.min(fixedRight - MIN_RECT_SIZE, origin.x + dx))
+        x = newLeft
+        width = fixedRight - newLeft
       }
-      if (height < MIN_RECT_SIZE) {
-        if (handle.includes('t')) y = origin.y + origin.height - MIN_RECT_SIZE
-        height = MIN_RECT_SIZE
+      if (handle.includes('r')) {
+        const newRight = Math.min(imageSize.width, Math.max(fixedLeft + MIN_RECT_SIZE, fixedRight + dx))
+        width = newRight - fixedLeft
+      }
+      if (handle.includes('t')) {
+        const newTop = Math.max(0, Math.min(fixedBottom - MIN_RECT_SIZE, origin.y + dy))
+        y = newTop
+        height = fixedBottom - newTop
+      }
+      if (handle.includes('b')) {
+        const newBottom = Math.min(imageSize.height, Math.max(fixedTop + MIN_RECT_SIZE, fixedBottom + dy))
+        height = newBottom - fixedTop
       }
 
-      const next = clampRectToBounds(x, y, width, height, imageSize.width, imageSize.height)
+      const next = { x, y, width, height }
 
       rectsRef.current = rectsRef.current.map((r) =>
         r.id === rectId ? { ...r, ...next } : r,

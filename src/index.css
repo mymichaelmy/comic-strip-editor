@@ -291,9 +291,10 @@ input {
   background: #0f1319;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, opacity 0.15s, box-shadow 0.15s;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .thumb-card:hover {
@@ -303,6 +304,46 @@ input {
 .thumb-card.active {
   border-color: #4da3ff;
   box-shadow: 0 0 0 1px #4da3ff inset;
+}
+
+.thumb-card.thumb-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+
+.thumb-card.thumb-drag-over {
+  border-color: #4da3ff;
+  box-shadow: 0 0 0 2px #4da3ff inset;
+  background: #0d1e32;
+}
+
+.thumb-drag-handle {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 1;
+  color: #5a6475;
+  cursor: grab;
+  line-height: 0;
+  padding: 3px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.thumb-card:hover .thumb-drag-handle {
+  opacity: 1;
+  color: #9aa4b2;
+}
+
+.thumb-drag-handle:hover {
+  color: #9aa4b2;
+  background: rgba(255,255,255,0.06);
+}
+
+.thumb-drag-handle:active {
+  cursor: grabbing;
 }
 
 .thumb-image-wrap {
