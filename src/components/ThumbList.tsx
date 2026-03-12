@@ -33,7 +33,10 @@ export default function ThumbList({
                 {url ? (
                   <img src={url} className="thumb-image" alt={`thumb-${index + 1}`} />
                 ) : (
-                  <div className="thumb-placeholder">生成中...</div>
+                  <div className="thumb-placeholder">
+                    <span className="thumb-spinner" />
+                    <span>截取中</span>
+                  </div>
                 )}
               </div>
 

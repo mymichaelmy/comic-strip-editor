@@ -13,9 +13,39 @@ type Props = {
   setThumbs: React.Dispatch<React.SetStateAction<ThumbItem[]>>
 }
 
-type DragMode = 'none' | 'create' | 'move'
+type ResizeHandle = 'tl' | 'tc' | 'tr' | 'ml' | 'mr' | 'bl' | 'bc' | 'br'
+type DragMode = 'none' | 'create' | 'move' | 'resize'
 
 const MIN_RECT_SIZE = 20
+
+const HANDLE_CURSORS: Record<ResizeHandle, string> = {
+  tl: 'nw-resize', tc: 'n-resize',  tr: 'ne-resize',
+  ml: 'w-resize',                    mr: 'e-resize',
+  bl: 'sw-resize', bc: 's-resize',  br: 'se-resize',
+}
+
+function getHandlePositions(r: RectItem, view: ViewState) {
+  const p = imageToScreen(r.x, r.y, view)
+  const sw = r.width * view.zoom
+  const sh = r.height * view.zoom
+  return [
+    { handle: 'tl' as ResizeHandle, cx: p.x,          cy: p.y },
+    { handle: 'tc' as ResizeHandle, cx: p.x + sw / 2, cy: p.y },
+    { handle: 'tr' as ResizeHandle, cx: p.x + sw,     cy: p.y },
+    { handle: 'ml' as ResizeHandle, cx: p.x,          cy: p.y + sh / 2 },
+    { handle: 'mr' as ResizeHandle, cx: p.x + sw,     cy: p.y + sh / 2 },
+    { handle: 'bl' as ResizeHandle, cx: p.x,          cy: p.y + sh },
+    { handle: 'bc' as ResizeHandle, cx: p.x + sw / 2, cy: p.y + sh },
+    { handle: 'br' as ResizeHandle, cx: p.x + sw,     cy: p.y + sh },
+  ]
+}
+
+function hitTestHandle(sx: number, sy: number, r: RectItem, view: ViewState): ResizeHandle | null {
+  for (const { handle, cx, cy } of getHandlePositions(r, view)) {
+    if (Math.abs(sx - cx) <= 6 && Math.abs(sy - cy) <= 6) return handle
+  }
+  return null
+}
 
 export default function CanvasStripEditor({
   preview,
@@ -28,6 +58,9 @@ export default function CanvasStripEditor({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const scrollTrackRef = useRef<HTMLDivElement | null>(null)
+  const scrollThumbRef = useRef<HTMLDivElement | null>(null)
+  const scrollDragRef = useRef<{ startY: number; startOffsetY: number } | null>(null)
 
   const viewRef = useRef<ViewState>({
     zoom: 1,
@@ -42,6 +75,9 @@ export default function CanvasStripEditor({
   const tempRectRef = useRef<RectItem | null>(null)
   const movingRectIdRef = useRef<string | null>(null)
   const movingRectOriginRef = useRef({ x: 0, y: 0 })
+  const resizingRectIdRef = useRef<string | null>(null)
+  const resizingHandleRef = useRef<ResizeHandle | null>(null)
+  const resizingOriginRef = useRef<RectItem | null>(null)
   const hoverRectIdRef = useRef<string | null>(null)
   const activeRectIdRef = useRef<string | null>(activeRectId)
 
@@ -141,19 +177,18 @@ export default function CanvasStripEditor({
       ovCtx.fillStyle = active
         ? 'rgba(77,163,255,0.18)'
         : hover
-        ? 'rgba(255,255,255,0.10)'
-        : 'rgba(255,99,99,0.12)'
-      ovCtx.strokeStyle = active ? '#4da3ff' : hover ? '#ffffff' : '#ff6b6b'
+        ? 'rgba(255,99,99,0.22)'
+        : 'rgba(255,99,99,0.10)'
+      ovCtx.strokeStyle = active ? '#4da3ff' : '#ff6b6b'
       ovCtx.lineWidth = active ? 2 : 1
       ovCtx.fillRect(p.x, p.y, sw, sh)
       ovCtx.strokeRect(p.x, p.y, sw, sh)
 
-      const handleSize = 8
+      const hs = 8
       ovCtx.fillStyle = active ? '#4da3ff' : '#ff6b6b'
-      ovCtx.fillRect(p.x - handleSize / 2, p.y - handleSize / 2, handleSize, handleSize)
-      ovCtx.fillRect(p.x + sw - handleSize / 2, p.y - handleSize / 2, handleSize, handleSize)
-      ovCtx.fillRect(p.x - handleSize / 2, p.y + sh - handleSize / 2, handleSize, handleSize)
-      ovCtx.fillRect(p.x + sw - handleSize / 2, p.y + sh - handleSize / 2, handleSize, handleSize)
+      for (const { cx, cy } of getHandlePositions(r, view)) {
+        ovCtx.fillRect(cx - hs / 2, cy - hs / 2, hs, hs)
+      }
     }
 
     for (const r of rectsRef.current) {
@@ -162,6 +197,24 @@ export default function CanvasStripEditor({
 
     if (tempRectRef.current) {
       drawRect(tempRectRef.current, true, false)
+    }
+
+    // Sync scrollbar thumb — direct DOM update, no React re-render
+    const scrollThumb = scrollThumbRef.current
+    const scrollTrack = scrollTrackRef.current
+    if (scrollThumb && scrollTrack) {
+      const trackH = scrollTrack.clientHeight
+      const totalH = preview.height * view.zoom
+      if (totalH <= height) {
+        scrollThumb.style.display = 'none'
+      } else {
+        scrollThumb.style.display = 'block'
+        const thumbH = Math.max(36, (height / totalH) * trackH)
+        const maxThumbTop = trackH - thumbH
+        const scrollRatio = Math.min(1, -view.offsetY / (totalH - height))
+        scrollThumb.style.height = `${thumbH}px`
+        scrollThumb.style.top = `${scrollRatio * maxThumbTop}px`
+      }
     }
   // preview is a stable canvas object — only needs to be in deps for initial load
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,6 +241,25 @@ export default function CanvasStripEditor({
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [fitToWidth, resizeCanvases, scheduleRender])
+
+  // Scroll to active rect if it's outside the viewport (e.g. selected from thumbnail panel)
+  useEffect(() => {
+    if (!activeRectId || !preview) return
+    const rect = rectsRef.current.find((r) => r.id === activeRectId)
+    if (!rect) return
+    const container = containerRef.current
+    if (!container) return
+    const view = viewRef.current
+    const viewH = container.clientHeight
+    const rectTop = rect.y * view.zoom + view.offsetY
+    const rectBot = (rect.y + rect.height) * view.zoom + view.offsetY
+    if (rectTop >= 0 && rectBot <= viewH) return // already fully visible
+    const scaledH = preview.height * view.zoom
+    const minOffsetY = Math.min(0, viewH - scaledH)
+    const targetOffsetY = viewH / 2 - (rect.y + rect.height / 2) * view.zoom
+    view.offsetY = Math.max(minOffsetY, Math.min(0, targetOffsetY))
+    scheduleRender()
+  }, [activeRectId, preview, scheduleRender])
 
   const getLocalPoint = useCallback((e: PointerEvent | MouseEvent | WheelEvent) => {
     const rect = overlayCanvasRef.current!.getBoundingClientRect()
@@ -296,6 +368,77 @@ export default function CanvasStripEditor({
     }
   }, [rects, preview, scheduleThumbs])
 
+  const onScrollThumbDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+    ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+    scrollDragRef.current = { startY: e.clientY, startOffsetY: viewRef.current.offsetY }
+  }, [])
+
+  const onScrollThumbMove = useCallback((e: React.PointerEvent) => {
+    if (!scrollDragRef.current || !preview) return
+    const track = scrollTrackRef.current
+    const container = containerRef.current
+    if (!track || !container) return
+    const trackH = track.clientHeight
+    const viewH = container.clientHeight
+    const totalH = preview.height * viewRef.current.zoom
+    const thumbH = Math.max(36, (viewH / totalH) * trackH)
+    const maxThumbTop = trackH - thumbH
+    const dy = e.clientY - scrollDragRef.current.startY
+    const deltaOffset = -(dy / maxThumbTop) * (totalH - viewH)
+    const minOffsetY = Math.min(0, viewH - totalH)
+    viewRef.current.offsetY = Math.max(minOffsetY, Math.min(0, scrollDragRef.current.startOffsetY + deltaOffset))
+    scheduleRender()
+  }, [preview, scheduleRender])
+
+  const onScrollThumbUp = useCallback(() => {
+    scrollDragRef.current = null
+  }, [])
+
+  const onScrollTrackClick = useCallback((e: React.MouseEvent) => {
+    if (!preview) return
+    const thumb = scrollThumbRef.current
+    if (thumb && thumb.contains(e.target as Node)) return
+    const track = scrollTrackRef.current
+    const container = containerRef.current
+    if (!track || !container) return
+    const trackH = track.clientHeight
+    const viewH = container.clientHeight
+    const totalH = preview.height * viewRef.current.zoom
+    const thumbH = Math.max(36, (viewH / totalH) * trackH)
+    const maxThumbTop = trackH - thumbH
+    const clickY = e.clientY - track.getBoundingClientRect().top
+    const thumbTop = Math.max(0, Math.min(maxThumbTop, clickY - thumbH / 2))
+    const scrollRatio = thumbTop / maxThumbTop
+    const minOffsetY = Math.min(0, viewH - totalH)
+    viewRef.current.offsetY = Math.max(minOffsetY, Math.min(0, -scrollRatio * (totalH - viewH)))
+    scheduleRender()
+  }, [preview, scheduleRender])
+
+  const onAddRect = useCallback(() => {
+    if (!preview) return
+    const container = containerRef.current
+    if (!container) return
+    const view = viewRef.current
+    const viewW = container.clientWidth
+    const viewH = container.clientHeight
+    const centerX = (viewW / 2 - view.offsetX) / view.zoom
+    const centerY = (viewH / 2 - view.offsetY) / view.zoom
+    const defaultW = (viewW / view.zoom) * 0.6
+    const defaultH = defaultW * (4 / 3)
+    const clamped = clampRectToBounds(
+      centerX - defaultW / 2,
+      centerY - defaultH / 2,
+      defaultW,
+      defaultH,
+      imageSize.width,
+      imageSize.height,
+    )
+    const newRect: RectItem = { id: uidRect(), ...clamped }
+    setRects((prev) => [...prev, newRect])
+    setActiveRectId(newRect.id)
+  }, [imageSize.height, imageSize.width, preview, setActiveRectId, setRects])
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (!preview) return
     ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
@@ -319,6 +462,23 @@ export default function CanvasStripEditor({
       setActiveRectId(null)
       scheduleRender()
       return
+    }
+
+    // Check resize handles on active / hovered rect before body hit-test
+    const candidateIds = [activeRectIdRef.current, hoverRectIdRef.current].filter(Boolean) as string[]
+    for (const id of candidateIds) {
+      const candidate = rectsRef.current.find((r) => r.id === id)
+      if (!candidate) continue
+      const handle = hitTestHandle(local.x, local.y, candidate, viewRef.current)
+      if (handle) {
+        dragModeRef.current = 'resize'
+        resizingRectIdRef.current = id
+        resizingHandleRef.current = handle
+        resizingOriginRef.current = { ...candidate }
+        setActiveRectId(id)
+        scheduleRender()
+        return
+      }
     }
 
     if (hit) {
@@ -346,6 +506,21 @@ export default function CanvasStripEditor({
       if (nextHover !== hoverRectIdRef.current) {
         hoverRectIdRef.current = nextHover
         scheduleRender()
+      }
+
+      // Update cursor: check handles first, then rect body
+      const overlay = overlayCanvasRef.current
+      if (overlay) {
+        const candidateIds = [activeRectIdRef.current, hoverRectIdRef.current].filter(Boolean) as string[]
+        let cursor = 'default'
+        for (const id of candidateIds) {
+          const candidate = rectsRef.current.find((r) => r.id === id)
+          if (!candidate) continue
+          const h = hitTestHandle(local.x, local.y, candidate, viewRef.current)
+          if (h) { cursor = HANDLE_CURSORS[h]; break }
+        }
+        if (cursor === 'default' && hit) cursor = 'move'
+        overlay.style.cursor = cursor
       }
       return
     }
@@ -378,7 +553,43 @@ export default function CanvasStripEditor({
         imageSize.height,
       )
 
-      // Mutate ref directly for zero-cost render during drag; sync to state on pointerUp
+      rectsRef.current = rectsRef.current.map((r) =>
+        r.id === rectId ? { ...r, ...next } : r,
+      )
+
+      scheduleRender()
+      return
+    }
+
+    if (dragModeRef.current === 'resize') {
+      const rectId = resizingRectIdRef.current
+      const handle = resizingHandleRef.current
+      const origin = resizingOriginRef.current
+      if (!rectId || !handle || !origin) return
+
+      const dx = (local.x - pointerStartRef.current.x) / viewRef.current.zoom
+      const dy = (local.y - pointerStartRef.current.y) / viewRef.current.zoom
+
+      let { x, y, width, height } = origin
+
+      // Adjust edges based on which handle is being dragged
+      if (handle.includes('l')) { x = origin.x + dx; width = origin.width - dx }
+      if (handle.includes('r')) { width = origin.width + dx }
+      if (handle.includes('t')) { y = origin.y + dy; height = origin.height - dy }
+      if (handle.includes('b')) { height = origin.height + dy }
+
+      // Enforce minimum size
+      if (width < MIN_RECT_SIZE) {
+        if (handle.includes('l')) x = origin.x + origin.width - MIN_RECT_SIZE
+        width = MIN_RECT_SIZE
+      }
+      if (height < MIN_RECT_SIZE) {
+        if (handle.includes('t')) y = origin.y + origin.height - MIN_RECT_SIZE
+        height = MIN_RECT_SIZE
+      }
+
+      const next = clampRectToBounds(x, y, width, height, imageSize.width, imageSize.height)
+
       rectsRef.current = rectsRef.current.map((r) =>
         r.id === rectId ? { ...r, ...next } : r,
       )
@@ -409,13 +620,16 @@ export default function CanvasStripEditor({
         setActiveRectId(finalRect.id)
       }
       tempRectRef.current = null
-    } else if (dragModeRef.current === 'move') {
+    } else if (dragModeRef.current === 'move' || dragModeRef.current === 'resize') {
       // Flush ref mutations back to React state
       setRects([...rectsRef.current])
     }
 
     dragModeRef.current = 'none'
     movingRectIdRef.current = null
+    resizingRectIdRef.current = null
+    resizingHandleRef.current = null
+    resizingOriginRef.current = null
     scheduleRender()
   }, [imageSize.height, imageSize.width, preview, scheduleRender, setActiveRectId, setRects])
 
@@ -423,25 +637,43 @@ export default function CanvasStripEditor({
     <div className="editor-shell">
       <div className="editor-left">
         <div className="editor-toolbar">
-          <span>操作说明：</span>
+          <button className="add-rect-btn" onClick={onAddRect} disabled={!preview}>
+            + 新建分镜框
+          </button>
+          <span className="toolbar-divider" />
           <span>滚轮滚动</span>
-          <span>Ctrl/⌘ + 滚轮缩放</span>
-          <span>拖空白处平移</span>
-          <span className="tip-highlight">Shift + 拖动 创建分镜框</span>
-          <span>拖已有框移动</span>
+          <span>Shift + 拖动 创建框</span>
+          <span>拖框移动 · 拖角 Resize</span>
         </div>
 
-        <div ref={containerRef} className="canvas-container">
-          {/* Background canvas: image only — repainted rarely */}
-          <canvas ref={bgCanvasRef} className="canvas-layer" />
-          {/* Overlay canvas: rects + handles — all pointer events here */}
-          <canvas
-            ref={overlayCanvasRef}
-            className="canvas-layer overlay"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-          />
+        <div className="editor-canvas-row">
+          <div ref={containerRef} className="canvas-container">
+            {/* Background canvas: image only — repainted rarely */}
+            <canvas ref={bgCanvasRef} className="canvas-layer" />
+            {/* Overlay canvas: rects + handles — all pointer events here */}
+            <canvas
+              ref={overlayCanvasRef}
+              className="canvas-layer overlay"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+            />
+          </div>
+
+          {/* Custom scrollbar — sits outside canvas, never overlaps content */}
+          <div
+            ref={scrollTrackRef}
+            className="canvas-scrollbar-track"
+            onClick={onScrollTrackClick}
+          >
+            <div
+              ref={scrollThumbRef}
+              className="canvas-scrollbar-thumb"
+              onPointerDown={onScrollThumbDown}
+              onPointerMove={onScrollThumbMove}
+              onPointerUp={onScrollThumbUp}
+            />
+          </div>
         </div>
       </div>
     </div>
