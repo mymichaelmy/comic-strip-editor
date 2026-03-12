@@ -3,6 +3,7 @@ import CanvasStripEditor from './components/CanvasStripEditor'
 import ThumbList from './components/ThumbList'
 import type { CompositePreview, RectItem, SourceImage, ThumbItem } from './types'
 import { buildPreviewComposite, loadFilesToBitmaps } from './utils/image'
+import { exportZip } from './utils/export'
 import { useFps } from './hooks/useFps'
 
 export default function App() {
@@ -12,6 +13,7 @@ export default function App() {
   const [thumbs, setThumbs] = useState<ThumbItem[]>([])
   const [activeRectId, setActiveRectId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const fps = useFps()
 
   const stats = useMemo(() => {
@@ -53,6 +55,16 @@ export default function App() {
     setActiveRectId(null)
   }
 
+  const onExport = async () => {
+    if (!preview || rects.length === 0 || exporting) return
+    setExporting(true)
+    try {
+      await exportZip(rects, preview)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const fpsColor = fps >= 55 ? '#4ade80' : fps >= 30 ? '#f0a500' : '#f87171'
 
   return (
@@ -79,6 +91,13 @@ export default function App() {
               hidden
             />
           </label>
+          <button
+            className="ghost-btn"
+            onClick={onExport}
+            disabled={!preview || rects.length === 0 || exporting}
+          >
+            {exporting ? '导出中...' : '导出 ZIP'}
+          </button>
           <button className="ghost-btn" onClick={clearAll}>
             清空
           </button>
