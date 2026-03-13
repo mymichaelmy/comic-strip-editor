@@ -37,13 +37,34 @@ export default function App() {
 
     setLoading(true)
     try {
-      const imgs = await loadFilesToBitmaps(files)
-      const pv = buildPreviewComposite(imgs, 1200)
-      setImages(imgs)
-      setPreview(pv)
-      setRects([])
-      setThumbs([])
-      setActiveRectId(null)
+      const newImgs = await loadFilesToBitmaps(files)
+
+      setImages((prevImages) => {
+        // Offset new images to start below existing ones (original pixel space)
+        const existingH = prevImages.reduce((sum, i) => sum + i.height, 0)
+        for (const img of newImgs) img.offsetY += existingH
+
+        const merged = [...prevImages, ...newImgs]
+        const newPreview = buildPreviewComposite(merged, 1200)
+
+        setPreview((prevPreview) => {
+          // If scale changed (new image is wider/narrower), rescale existing rects
+          if (prevPreview && newPreview.scale !== prevPreview.scale) {
+            const factor = newPreview.scale / prevPreview.scale
+            setRects((prev) => prev.map((r) => ({
+              ...r,
+              x: r.x * factor,
+              y: r.y * factor,
+              width: r.width * factor,
+              height: r.height * factor,
+            })))
+            setThumbs([])
+          }
+          return newPreview
+        })
+
+        return merged
+      })
     } finally {
       setLoading(false)
     }
