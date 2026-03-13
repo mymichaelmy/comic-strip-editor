@@ -37,13 +37,27 @@ export function buildPreviewComposite(
   }
 
   const maxWidth = Math.max(...images.map((i) => i.width))
-  const totalHeight = images.reduce((sum, i) => sum + i.height, 0)
   const scale = targetWidth / maxWidth
   const previewWidth = Math.round(maxWidth * scale)
-  const previewHeight = Math.round(totalHeight * scale)
+  let previewHeight = 0
 
-  // No canvas needed — images are drawn directly in the render loop with viewport culling
-  return { width: previewWidth, height: previewHeight, scale, sources: images }
+  const sources = images.map((image) => {
+    const scaledWidth = Math.round(image.width * scale)
+    const scaledHeight = Math.round(image.height * scale)
+    const previewOffsetY = previewHeight
+    previewHeight += scaledHeight
+
+    return {
+      ...image,
+      previewOffsetX: Math.round((previewWidth - scaledWidth) / 2),
+      previewOffsetY,
+      previewWidth: scaledWidth,
+      previewHeight: scaledHeight,
+    }
+  })
+
+  // Cache preview-space placement so long strips do not accumulate per-frame rounding drift.
+  return { width: previewWidth, height: previewHeight, scale, sources }
 }
 
 export function clampRectToBounds(

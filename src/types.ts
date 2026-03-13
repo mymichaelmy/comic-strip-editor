@@ -5,6 +5,10 @@ export type SourceImage = {
   width: number
   height: number
   offsetY: number
+  previewOffsetX?: number
+  previewOffsetY?: number
+  previewWidth?: number
+  previewHeight?: number
 }
 
 export type CompositePreview = {

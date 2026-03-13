@@ -58,6 +58,7 @@ export default function CanvasStripEditor({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const bgDirtyRef = useRef(true) // true = bg canvas needs a full redraw
   const scrollTrackRef = useRef<HTMLDivElement | null>(null)
   const scrollThumbRef = useRef<HTMLDivElement | null>(null)
   const scrollDragRef = useRef<{ startY: number; startOffsetY: number } | null>(null)
@@ -115,6 +116,7 @@ export default function CanvasStripEditor({
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
+    bgDirtyRef.current = true  // resizing clears canvas pixels
   }, [])
 
   // Fit image to panel width; called on preview load and container resize
@@ -123,6 +125,7 @@ export default function CanvasStripEditor({
     if (!container || !preview) return
     const zoom = container.clientWidth / preview.width
     viewRef.current = { zoom, offsetX: 0, offsetY: 0 }
+    bgDirtyRef.current = true  // zoom changed
   }, [preview])
 
   // render reads from refs only — stable, never needs to be re-created
@@ -137,34 +140,44 @@ export default function CanvasStripEditor({
     const width = bg.clientWidth
     const height = bg.clientHeight
 
-    bgCtx.clearRect(0, 0, width, height)
+    const view = viewRef.current
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+
+    // Overlay is interactive and lightweight, so always clear and redraw it.
     ovCtx.clearRect(0, 0, width, height)
 
-    bgCtx.fillStyle = '#0b0b0b'
-    bgCtx.fillRect(0, 0, width, height)
+    // --- bg layer: only repaint when view/preview changed ---
+    if (bgDirtyRef.current) {
+      bgDirtyRef.current = false
+      bgCtx.clearRect(0, 0, width, height)
+      bgCtx.fillStyle = '#0b0b0b'
+      bgCtx.fillRect(0, 0, width, height)
+
+      if (preview) {
+        // snap(v) rounds v to the nearest physical-pixel boundary.
+        // The canvas has setTransform(dpr,…) applied, so drawing at CSS px `v` maps to
+        // physical px `v * dpr`. If that's not an integer the browser anti-aliases the edge,
+        // producing a visible seam. snap() ensures v * dpr is always an exact integer.
+        const snap = (v: number) => Math.round(v * dpr) / dpr
+
+        for (const src of preview.sources) {
+          const imgY = src.previewOffsetY ?? Math.round(src.offsetY * preview.scale)
+          const imgH = src.previewHeight ?? Math.round(src.height * preview.scale)
+          const imgBottom = imgY + imgH
+          const screenTop = snap(imgY * view.zoom + view.offsetY)
+          const screenBot = snap(imgBottom * view.zoom + view.offsetY)
+          if (screenBot < 0 || screenTop > height) continue
+          const imgX = src.previewOffsetX ?? Math.round((preview.width - Math.round(src.width * preview.scale)) / 2)
+          const imgW = src.previewWidth ?? Math.round(src.width * preview.scale)
+          const imgRight = imgX + imgW
+          const screenLeft = snap(imgX * view.zoom + view.offsetX)
+          const screenRight = snap(imgRight * view.zoom + view.offsetX)
+          bgCtx.drawImage(src.bitmap, screenLeft, screenTop, screenRight - screenLeft, screenBot - screenTop)
+        }
+      }
+    }
 
     if (!preview) return
-
-    const view = viewRef.current
-    // snap(v) rounds v to the nearest physical-pixel boundary.
-    // The canvas has setTransform(dpr,…) applied, so drawing at CSS px `v` maps to
-    // physical px `v * dpr`. If that's not an integer the browser anti-aliases the edge,
-    // producing a visible seam. snap() ensures v * dpr is always an exact integer.
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const snap = (v: number) => Math.round(v * dpr) / dpr
-
-    for (const src of preview.sources) {
-      const imgY = Math.round(src.offsetY * preview.scale)
-      const imgBottom = Math.round((src.offsetY + src.height) * preview.scale)
-      const screenTop = snap(imgY * view.zoom + view.offsetY)
-      const screenBot = snap(imgBottom * view.zoom + view.offsetY)
-      if (screenBot < 0 || screenTop > height) continue
-      const imgX = Math.round((preview.width - Math.round(src.width * preview.scale)) / 2)
-      const imgRight = imgX + Math.round(src.width * preview.scale)
-      const screenLeft = snap(imgX * view.zoom + view.offsetX)
-      const screenRight = snap(imgRight * view.zoom + view.offsetX)
-      bgCtx.drawImage(src.bitmap, screenLeft, screenTop, screenRight - screenLeft, screenBot - screenTop)
-    }
 
     const activeId = activeRectIdRef.current
     const hoverId = hoverRectIdRef.current
@@ -258,6 +271,7 @@ export default function CanvasStripEditor({
     const minOffsetY = Math.min(0, viewH - scaledH)
     const targetOffsetY = viewH / 2 - (rect.y + rect.height / 2) * view.zoom
     view.offsetY = Math.max(minOffsetY, Math.min(0, targetOffsetY))
+    bgDirtyRef.current = true
     scheduleRender()
   }, [activeRectId, preview, scheduleRender])
 
@@ -288,6 +302,7 @@ export default function CanvasStripEditor({
       const minOffsetY = Math.min(0, viewH - scaledH)
       view.offsetY = Math.max(minOffsetY, Math.min(0, view.offsetY - e.deltaY))
 
+      bgDirtyRef.current = true
       scheduleRender()
     }
 
@@ -323,10 +338,11 @@ export default function CanvasStripEditor({
 
       // Draw from each source bitmap that intersects this rect
       for (const src of preview.sources) {
-        const imgY = Math.round(src.offsetY * preview.scale)
-        const imgBottom = Math.round((src.offsetY + src.height) * preview.scale)
-        const imgW = Math.round(src.width * preview.scale)
-        const imgX = Math.round((preview.width - imgW) / 2)
+        const imgY = src.previewOffsetY ?? Math.round(src.offsetY * preview.scale)
+        const imgH = src.previewHeight ?? Math.round(src.height * preview.scale)
+        const imgBottom = imgY + imgH
+        const imgW = src.previewWidth ?? Math.round(src.width * preview.scale)
+        const imgX = src.previewOffsetX ?? Math.round((preview.width - imgW) / 2)
 
         if (imgBottom <= ry || imgY >= rBottom) continue
         if (imgX + imgW <= rx || imgX >= rRight) continue
@@ -399,6 +415,7 @@ export default function CanvasStripEditor({
     const deltaOffset = -(dy / maxThumbTop) * (totalH - viewH)
     const minOffsetY = Math.min(0, viewH - totalH)
     viewRef.current.offsetY = Math.max(minOffsetY, Math.min(0, scrollDragRef.current.startOffsetY + deltaOffset))
+    bgDirtyRef.current = true
     scheduleRender()
   }, [preview, scheduleRender])
 
@@ -423,6 +440,7 @@ export default function CanvasStripEditor({
     const scrollRatio = thumbTop / maxThumbTop
     const minOffsetY = Math.min(0, viewH - totalH)
     viewRef.current.offsetY = Math.max(minOffsetY, Math.min(0, -scrollRatio * (totalH - viewH)))
+    bgDirtyRef.current = true
     scheduleRender()
   }, [preview, scheduleRender])
 
