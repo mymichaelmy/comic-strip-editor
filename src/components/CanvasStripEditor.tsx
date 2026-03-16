@@ -82,8 +82,10 @@ export default function CanvasStripEditor({
   const createRectStartRef = useRef({ x: 0, y: 0 })
   const tempRectRef = useRef<RectItem | null>(null)
   const movingRectIdRef = useRef<string | null>(null)
+  const movingRectDraftRef = useRef<RectItem | null>(null)
   const movingRectOriginRef = useRef({ x: 0, y: 0 })
   const resizingRectIdRef = useRef<string | null>(null)
+  const resizingRectDraftRef = useRef<RectItem | null>(null)
   const resizingHandleRef = useRef<ResizeHandle | null>(null)
   const resizingOriginRef = useRef<RectItem | null>(null)
   const hoverRectIdRef = useRef<string | null>(null)
@@ -215,7 +217,17 @@ export default function CanvasStripEditor({
     }
 
     for (const r of rectsRef.current) {
+      if (movingRectDraftRef.current && r.id === movingRectDraftRef.current.id) continue
+      if (resizingRectDraftRef.current && r.id === resizingRectDraftRef.current.id) continue
       drawRect(r, r.id === activeId, r.id === hoverId)
+    }
+
+    if (movingRectDraftRef.current) {
+      drawRect(movingRectDraftRef.current, movingRectDraftRef.current.id === activeId, movingRectDraftRef.current.id === hoverId)
+    }
+
+    if (resizingRectDraftRef.current) {
+      drawRect(resizingRectDraftRef.current, resizingRectDraftRef.current.id === activeId, resizingRectDraftRef.current.id === hoverId)
     }
 
     if (tempRectRef.current) {
@@ -623,6 +635,7 @@ export default function CanvasStripEditor({
       if (handle) {
         dragModeRef.current = 'resize'
         resizingRectIdRef.current = id
+        resizingRectDraftRef.current = { ...candidate }
         resizingHandleRef.current = handle
         resizingOriginRef.current = { ...candidate }
         setActiveRectId(id)
@@ -634,6 +647,7 @@ export default function CanvasStripEditor({
     if (hit) {
       dragModeRef.current = 'move'
       movingRectIdRef.current = hit.id
+      movingRectDraftRef.current = { ...hit }
       movingRectOriginRef.current = { x: hit.x, y: hit.y }
       setActiveRectId(hit.id)
       scheduleRender()
@@ -704,9 +718,7 @@ export default function CanvasStripEditor({
         imageSize.height,
       )
 
-      rectsRef.current = rectsRef.current.map((r) =>
-        r.id === rectId ? { ...r, ...next } : r,
-      )
+      movingRectDraftRef.current = { ...target, ...next }
 
       scheduleRender()
       return
@@ -750,9 +762,7 @@ export default function CanvasStripEditor({
         height = newBottom - fixedTop
       }
 
-      rectsRef.current = rectsRef.current.map((r) =>
-        r.id === rectId ? { ...r, x, y, width, height } : r,
-      )
+      resizingRectDraftRef.current = { ...origin, x, y, width, height }
 
       scheduleRender()
     }
@@ -779,13 +789,31 @@ export default function CanvasStripEditor({
         setActiveRectId(finalRect.id)
       }
       tempRectRef.current = null
-    } else if (dragModeRef.current === 'move' || dragModeRef.current === 'resize') {
-      setRects([...rectsRef.current])
+    } else if (dragModeRef.current === 'move') {
+      const rectId = movingRectIdRef.current
+      const draft = movingRectDraftRef.current
+      if (rectId && draft) {
+        rectsRef.current = rectsRef.current.map((r) =>
+          r.id === rectId ? draft : r,
+        )
+        setRects([...rectsRef.current])
+      }
+    } else if (dragModeRef.current === 'resize') {
+      const rectId = resizingRectIdRef.current
+      const draft = resizingRectDraftRef.current
+      if (rectId && draft) {
+        rectsRef.current = rectsRef.current.map((r) =>
+          r.id === rectId ? draft : r,
+        )
+        setRects([...rectsRef.current])
+      }
     }
 
     dragModeRef.current = 'none'
     movingRectIdRef.current = null
+    movingRectDraftRef.current = null
     resizingRectIdRef.current = null
+    resizingRectDraftRef.current = null
     resizingHandleRef.current = null
     resizingOriginRef.current = null
     scheduleRender()
