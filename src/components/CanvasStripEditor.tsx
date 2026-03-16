@@ -19,9 +19,9 @@ type DragMode = 'none' | 'create' | 'move' | 'resize'
 const MIN_RECT_SIZE = 20
 
 const HANDLE_CURSORS: Record<ResizeHandle, string> = {
-  tl: 'nw-resize', tc: 'n-resize',  tr: 'ne-resize',
-  ml: 'w-resize',                    mr: 'e-resize',
-  bl: 'sw-resize', bc: 's-resize',  br: 'se-resize',
+  tl: 'nw-resize', tc: 'n-resize', tr: 'ne-resize',
+  ml: 'w-resize', mr: 'e-resize',
+  bl: 'sw-resize', bc: 's-resize', br: 'se-resize',
 }
 
 function getHandlePositions(r: RectItem, view: ViewState) {
@@ -29,14 +29,14 @@ function getHandlePositions(r: RectItem, view: ViewState) {
   const sw = r.width * view.zoom
   const sh = r.height * view.zoom
   return [
-    { handle: 'tl' as ResizeHandle, cx: p.x,          cy: p.y },
+    { handle: 'tl' as ResizeHandle, cx: p.x, cy: p.y },
     { handle: 'tc' as ResizeHandle, cx: p.x + sw / 2, cy: p.y },
-    { handle: 'tr' as ResizeHandle, cx: p.x + sw,     cy: p.y },
-    { handle: 'ml' as ResizeHandle, cx: p.x,          cy: p.y + sh / 2 },
-    { handle: 'mr' as ResizeHandle, cx: p.x + sw,     cy: p.y + sh / 2 },
-    { handle: 'bl' as ResizeHandle, cx: p.x,          cy: p.y + sh },
+    { handle: 'tr' as ResizeHandle, cx: p.x + sw, cy: p.y },
+    { handle: 'ml' as ResizeHandle, cx: p.x, cy: p.y + sh / 2 },
+    { handle: 'mr' as ResizeHandle, cx: p.x + sw, cy: p.y + sh / 2 },
+    { handle: 'bl' as ResizeHandle, cx: p.x, cy: p.y + sh },
     { handle: 'bc' as ResizeHandle, cx: p.x + sw / 2, cy: p.y + sh },
-    { handle: 'br' as ResizeHandle, cx: p.x + sw,     cy: p.y + sh },
+    { handle: 'br' as ResizeHandle, cx: p.x + sw, cy: p.y + sh },
   ]
 }
 
@@ -58,7 +58,7 @@ export default function CanvasStripEditor({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const bgDirtyRef = useRef(true) // true = bg canvas needs a full redraw
+  const bgDirtyRef = useRef(true)
   const scrollTrackRef = useRef<HTMLDivElement | null>(null)
   const scrollThumbRef = useRef<HTMLDivElement | null>(null)
   const scrollDragRef = useRef<{ startY: number; startOffsetY: number } | null>(null)
@@ -82,7 +82,6 @@ export default function CanvasStripEditor({
   const hoverRectIdRef = useRef<string | null>(null)
   const activeRectIdRef = useRef<string | null>(activeRectId)
 
-  // Keep activeRectIdRef in sync so render() doesn't need to re-create on every change
   useEffect(() => {
     activeRectIdRef.current = activeRectId
   }, [activeRectId])
@@ -116,19 +115,18 @@ export default function CanvasStripEditor({
       const ctx = canvas.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
-    bgDirtyRef.current = true  // resizing clears canvas pixels
+
+    bgDirtyRef.current = true
   }, [])
 
-  // Fit image to panel width; called on preview load and container resize
   const fitToWidth = useCallback(() => {
     const container = containerRef.current
     if (!container || !preview) return
     const zoom = container.clientWidth / preview.width
     viewRef.current = { zoom, offsetX: 0, offsetY: 0 }
-    bgDirtyRef.current = true  // zoom changed
+    bgDirtyRef.current = true
   }, [preview])
 
-  // render reads from refs only — stable, never needs to be re-created
   const render = useCallback(() => {
     const bg = bgCanvasRef.current
     const overlay = overlayCanvasRef.current
@@ -136,17 +134,13 @@ export default function CanvasStripEditor({
 
     const bgCtx = bg.getContext('2d')!
     const ovCtx = overlay.getContext('2d')!
-
     const width = bg.clientWidth
     const height = bg.clientHeight
-
     const view = viewRef.current
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
-    // Overlay is interactive and lightweight, so always clear and redraw it.
     ovCtx.clearRect(0, 0, width, height)
 
-    // --- bg layer: only repaint when view/preview changed ---
     if (bgDirtyRef.current) {
       bgDirtyRef.current = false
       bgCtx.clearRect(0, 0, width, height)
@@ -154,10 +148,6 @@ export default function CanvasStripEditor({
       bgCtx.fillRect(0, 0, width, height)
 
       if (preview) {
-        // snap(v) rounds v to the nearest physical-pixel boundary.
-        // The canvas has setTransform(dpr,…) applied, so drawing at CSS px `v` maps to
-        // physical px `v * dpr`. If that's not an integer the browser anti-aliases the edge,
-        // producing a visible seam. snap() ensures v * dpr is always an exact integer.
         const snap = (v: number) => Math.round(v * dpr) / dpr
 
         for (const src of preview.sources) {
@@ -167,11 +157,13 @@ export default function CanvasStripEditor({
           const screenTop = snap(imgY * view.zoom + view.offsetY)
           const screenBot = snap(imgBottom * view.zoom + view.offsetY)
           if (screenBot < 0 || screenTop > height) continue
+
           const imgX = src.previewOffsetX ?? Math.round((preview.width - Math.round(src.width * preview.scale)) / 2)
           const imgW = src.previewWidth ?? Math.round(src.width * preview.scale)
           const imgRight = imgX + imgW
           const screenLeft = snap(imgX * view.zoom + view.offsetX)
           const screenRight = snap(imgRight * view.zoom + view.offsetX)
+
           bgCtx.drawImage(src.bitmap, screenLeft, screenTop, screenRight - screenLeft, screenBot - screenTop)
         }
       }
@@ -190,8 +182,8 @@ export default function CanvasStripEditor({
       ovCtx.fillStyle = active
         ? 'rgba(77,163,255,0.18)'
         : hover
-        ? 'rgba(255,99,99,0.22)'
-        : 'rgba(255,99,99,0.10)'
+          ? 'rgba(255,99,99,0.22)'
+          : 'rgba(255,99,99,0.10)'
       ovCtx.strokeStyle = active ? '#4da3ff' : '#ff6b6b'
       ovCtx.lineWidth = active ? 2 : 1
       ovCtx.fillRect(p.x, p.y, sw, sh)
@@ -212,7 +204,6 @@ export default function CanvasStripEditor({
       drawRect(tempRectRef.current, true, false)
     }
 
-    // Sync scrollbar thumb — direct DOM update, no React re-render
     const scrollThumb = scrollThumbRef.current
     const scrollTrack = scrollTrackRef.current
     if (scrollThumb && scrollTrack) {
@@ -229,8 +220,6 @@ export default function CanvasStripEditor({
         scrollThumb.style.top = `${scrollRatio * maxThumbTop}px`
       }
     }
-  // preview is a stable canvas object — only needs to be in deps for initial load
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview])
 
   const scheduleRender = useRafRender(render)
@@ -255,7 +244,6 @@ export default function CanvasStripEditor({
     return () => window.removeEventListener('resize', onResize)
   }, [fitToWidth, resizeCanvases, scheduleRender])
 
-  // Scroll to active rect if it's outside the viewport (e.g. selected from thumbnail panel)
   useEffect(() => {
     if (!activeRectId || !preview) return
     const rect = rectsRef.current.find((r) => r.id === activeRectId)
@@ -266,7 +254,7 @@ export default function CanvasStripEditor({
     const viewH = container.clientHeight
     const rectTop = rect.y * view.zoom + view.offsetY
     const rectBot = (rect.y + rect.height) * view.zoom + view.offsetY
-    if (rectTop >= 0 && rectBot <= viewH) return // already fully visible
+    if (rectTop >= 0 && rectBot <= viewH) return
     const scaledH = preview.height * view.zoom
     const minOffsetY = Math.min(0, viewH - scaledH)
     const targetOffsetY = viewH / 2 - (rect.y + rect.height / 2) * view.zoom
@@ -283,8 +271,6 @@ export default function CanvasStripEditor({
     }
   }, [])
 
-  // FIX: onWheel must be bound as a non-passive native listener to allow preventDefault()
-  // React synthetic wheel events are passive by default in modern browsers.
   useEffect(() => {
     const overlay = overlayCanvasRef.current
     if (!overlay) return
@@ -311,73 +297,125 @@ export default function CanvasStripEditor({
   }, [preview, scheduleRender])
 
   const debounceTimerRef = useRef<number | null>(null)
+  const prevPreviewRef = useRef<CompositePreview | null>(null)
+  const prevRectSnapshotRef = useRef<Map<string, string>>(new Map())
 
-  const rebuildThumbs = useCallback(() => {
-    if (!preview) return
+  const rectSnapshot = useCallback((rect: RectItem) => {
+    return `${rect.x}|${rect.y}|${rect.width}|${rect.height}`
+  }, [])
 
-    const output: ThumbItem[] = []
-    for (const rect of rectsRef.current) {
-      // Snap rect to integer pixel boundaries so all intersection math is exact
-      const rx = Math.round(rect.x)
-      const ry = Math.round(rect.y)
-      const rRight  = Math.round(rect.x + rect.width)
-      const rBottom = Math.round(rect.y + rect.height)
-      const rw = rRight - rx
-      const rh = rBottom - ry
+  const buildThumb = useCallback((rect: RectItem, currentPreview: CompositePreview): ThumbItem => {
+    const rx = Math.round(rect.x)
+    const ry = Math.round(rect.y)
+    const rRight = Math.round(rect.x + rect.width)
+    const rBottom = Math.round(rect.y + rect.height)
+    const rw = rRight - rx
+    const rh = rBottom - ry
 
-      const targetW = 180
-      const targetH = Math.max(1, Math.round(rh * (targetW / rw)))
+    const targetW = 180
+    const targetH = Math.max(1, Math.round(rh * (targetW / rw)))
 
-      const canvas = document.createElement('canvas')
-      canvas.width = targetW
-      canvas.height = targetH
-      const ctx = canvas.getContext('2d')!
+    const canvas = document.createElement('canvas')
+    canvas.width = targetW
+    canvas.height = targetH
+    const ctx = canvas.getContext('2d')!
 
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, targetW, targetH)
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, targetW, targetH)
 
-      // Draw from each source bitmap that intersects this rect
-      for (const src of preview.sources) {
-        const imgY = src.previewOffsetY ?? Math.round(src.offsetY * preview.scale)
-        const imgH = src.previewHeight ?? Math.round(src.height * preview.scale)
-        const imgBottom = imgY + imgH
-        const imgW = src.previewWidth ?? Math.round(src.width * preview.scale)
-        const imgX = src.previewOffsetX ?? Math.round((preview.width - imgW) / 2)
+    for (const src of currentPreview.sources) {
+      const imgY = src.previewOffsetY ?? Math.round(src.offsetY * currentPreview.scale)
+      const imgH = src.previewHeight ?? Math.round(src.height * currentPreview.scale)
+      const imgBottom = imgY + imgH
+      const imgW = src.previewWidth ?? Math.round(src.width * currentPreview.scale)
+      const imgX = src.previewOffsetX ?? Math.round((currentPreview.width - imgW) / 2)
 
-        if (imgBottom <= ry || imgY >= rBottom) continue
-        if (imgX + imgW <= rx || imgX >= rRight) continue
+      if (imgBottom <= ry || imgY >= rBottom) continue
+      if (imgX + imgW <= rx || imgX >= rRight) continue
 
-        // Intersection in image-space (all integers now)
-        const intX = Math.max(rx, imgX)
-        const intY = Math.max(ry, imgY)
-        const intR = Math.min(rRight, imgX + imgW)
-        const intB = Math.min(rBottom, imgBottom)
-        const intW = intR - intX
-        const intH = intB - intY
+      const intX = Math.max(rx, imgX)
+      const intY = Math.max(ry, imgY)
+      const intR = Math.min(rRight, imgX + imgW)
+      const intB = Math.min(rBottom, imgBottom)
+      const intW = intR - intX
+      const intH = intB - intY
 
-        // Derive dst edges independently — guaranteed exact integer adjacency
-        const dstL = Math.round(((intX - rx) / rw) * targetW)
-        const dstT = Math.round(((intY - ry) / rh) * targetH)
-        const dstR = Math.round(((intR - rx) / rw) * targetW)
-        const dstB = Math.round(((intB - ry) / rh) * targetH)
-        // Clamp source region to actual bitmap bounds — prevents sub-pixel overshoot
-        // that occurs when (intH / scale) slightly exceeds the bitmap edge due to
-        // float rounding in the Math.round(offsetY * scale) boundary computation.
-        const srcX = Math.max(0, (intX - imgX) / preview.scale)
-        const srcY = Math.max(0, (intY - imgY) / preview.scale)
-        const srcW = Math.min(src.width  - srcX, intW / preview.scale)
-        const srcH = Math.min(src.height - srcY, intH / preview.scale)
-        ctx.drawImage(src.bitmap, srcX, srcY, srcW, srcH, dstL, dstT, dstR - dstL, dstB - dstT)
-      }
+      const dstL = Math.round(((intX - rx) / rw) * targetW)
+      const dstT = Math.round(((intY - ry) / rh) * targetH)
+      const dstR = Math.round(((intR - rx) / rw) * targetW)
+      const dstB = Math.round(((intB - ry) / rh) * targetH)
+      const srcX = Math.max(0, (intX - imgX) / currentPreview.scale)
+      const srcY = Math.max(0, (intY - imgY) / currentPreview.scale)
+      const srcW = Math.min(src.width - srcX, intW / currentPreview.scale)
+      const srcH = Math.min(src.height - srcY, intH / currentPreview.scale)
 
-      output.push({
-        rectId: rect.id,
-        dataUrl: canvas.toDataURL('image/jpeg', 0.85),
-      })
+      ctx.drawImage(src.bitmap, srcX, srcY, srcW, srcH, dstL, dstT, dstR - dstL, dstB - dstT)
     }
 
-    setThumbs(output)
-  }, [preview, setThumbs])
+    return {
+      rectId: rect.id,
+      dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+    }
+  }, [])
+
+  const rebuildThumbs = useCallback(() => {
+    const currentPreview = preview
+    if (!currentPreview) {
+      prevPreviewRef.current = null
+      prevRectSnapshotRef.current = new Map()
+      setThumbs([])
+      return
+    }
+
+    const rectList = rectsRef.current
+    const nextSnapshot = new Map(rectList.map((rect) => [rect.id, rectSnapshot(rect)]))
+    const prevSnapshot = prevRectSnapshotRef.current
+    const fullRebuild = prevPreviewRef.current !== currentPreview
+
+    if (fullRebuild) {
+      prevPreviewRef.current = currentPreview
+      prevRectSnapshotRef.current = nextSnapshot
+      setThumbs(rectList.map((rect) => buildThumb(rect, currentPreview)))
+      return
+    }
+
+    const changedIds = new Set<string>()
+    for (const rect of rectList) {
+      if (prevSnapshot.get(rect.id) !== nextSnapshot.get(rect.id)) {
+        changedIds.add(rect.id)
+      }
+    }
+
+    const removedIds = new Set<string>()
+    for (const rectId of prevSnapshot.keys()) {
+      if (!nextSnapshot.has(rectId)) {
+        removedIds.add(rectId)
+      }
+    }
+
+    if (changedIds.size === 0 && removedIds.size === 0) return
+
+    prevPreviewRef.current = currentPreview
+    prevRectSnapshotRef.current = nextSnapshot
+    setThumbs((prev) => {
+      const thumbMap = new Map(prev.map((thumb) => [thumb.rectId, thumb]))
+
+      for (const rectId of removedIds) {
+        thumbMap.delete(rectId)
+      }
+
+      for (const rect of rectList) {
+        if (changedIds.has(rect.id)) {
+          thumbMap.set(rect.id, buildThumb(rect, currentPreview))
+        }
+      }
+
+      return rectList.flatMap((rect) => {
+        const thumb = thumbMap.get(rect.id)
+        return thumb ? [thumb] : []
+      })
+    })
+  }, [buildThumb, preview, rectSnapshot, setThumbs])
 
   const scheduleThumbs = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -493,7 +531,6 @@ export default function CanvasStripEditor({
       return
     }
 
-    // Check resize handles on active / hovered rect before body hit-test
     const candidateIds = [activeRectIdRef.current, hoverRectIdRef.current].filter(Boolean) as string[]
     for (const id of candidateIds) {
       const candidate = rectsRef.current.find((r) => r.id === id)
@@ -537,7 +574,6 @@ export default function CanvasStripEditor({
         scheduleRender()
       }
 
-      // Update cursor: check handles first, then rect body
       const overlay = overlayCanvasRef.current
       if (overlay) {
         const candidateIds = [activeRectIdRef.current, hoverRectIdRef.current].filter(Boolean) as string[]
@@ -546,7 +582,10 @@ export default function CanvasStripEditor({
           const candidate = rectsRef.current.find((r) => r.id === id)
           if (!candidate) continue
           const h = hitTestHandle(local.x, local.y, candidate, viewRef.current)
-          if (h) { cursor = HANDLE_CURSORS[h]; break }
+          if (h) {
+            cursor = HANDLE_CURSORS[h]
+            break
+          }
         }
         if (cursor === 'default' && hit) cursor = 'move'
         overlay.style.cursor = cursor
@@ -569,7 +608,6 @@ export default function CanvasStripEditor({
 
       const dx = (local.x - pointerStartRef.current.x) / viewRef.current.zoom
       const dy = (local.y - pointerStartRef.current.y) / viewRef.current.zoom
-
       const target = rectsRef.current.find((r) => r.id === rectId)
       if (!target) return
 
@@ -599,13 +637,15 @@ export default function CanvasStripEditor({
       const dx = (local.x - pointerStartRef.current.x) / viewRef.current.zoom
       const dy = (local.y - pointerStartRef.current.y) / viewRef.current.zoom
 
-      // Fixed opposite edges — these never move regardless of clamping
-      const fixedRight  = origin.x + origin.width
+      const fixedRight = origin.x + origin.width
       const fixedBottom = origin.y + origin.height
-      const fixedLeft   = origin.x
-      const fixedTop    = origin.y
+      const fixedLeft = origin.x
+      const fixedTop = origin.y
 
-      let x = origin.x, y = origin.y, width = origin.width, height = origin.height
+      let x = origin.x
+      let y = origin.y
+      let width = origin.width
+      let height = origin.height
 
       if (handle.includes('l')) {
         const newLeft = Math.max(0, Math.min(fixedRight - MIN_RECT_SIZE, origin.x + dx))
@@ -626,14 +666,11 @@ export default function CanvasStripEditor({
         height = newBottom - fixedTop
       }
 
-      const next = { x, y, width, height }
-
       rectsRef.current = rectsRef.current.map((r) =>
-        r.id === rectId ? { ...r, ...next } : r,
+        r.id === rectId ? { ...r, x, y, width, height } : r,
       )
 
       scheduleRender()
-      return
     }
   }, [getLocalPoint, imageSize.height, imageSize.width, preview, scheduleRender])
 
@@ -659,7 +696,6 @@ export default function CanvasStripEditor({
       }
       tempRectRef.current = null
     } else if (dragModeRef.current === 'move' || dragModeRef.current === 'resize') {
-      // Flush ref mutations back to React state
       setRects([...rectsRef.current])
     }
 
@@ -686,9 +722,7 @@ export default function CanvasStripEditor({
 
         <div className="editor-canvas-row">
           <div ref={containerRef} className="canvas-container">
-            {/* Background canvas: image only — repainted rarely */}
             <canvas ref={bgCanvasRef} className="canvas-layer" />
-            {/* Overlay canvas: rects + handles — all pointer events here */}
             <canvas
               ref={overlayCanvasRef}
               className="canvas-layer overlay"
@@ -698,7 +732,6 @@ export default function CanvasStripEditor({
             />
           </div>
 
-          {/* Custom scrollbar — sits outside canvas, never overlaps content */}
           <div
             ref={scrollTrackRef}
             className="canvas-scrollbar-track"
