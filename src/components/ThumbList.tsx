@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RectItem, ThumbItem } from '../types'
 
 type Props = {
@@ -21,8 +21,15 @@ export default function ThumbList({
   const thumbMap = new Map(thumbs.map((t) => [t.rectId, t.dataUrl]))
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
-  // Prevent click firing after a successful drag
   const didDragRef = useRef(false)
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  useEffect(() => {
+    if (!activeRectId) return
+    const card = cardRefs.current[activeRectId]
+    if (!card) return
+    card.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeRectId, rects])
 
   return (
     <div className="thumb-panel">
@@ -36,13 +43,18 @@ export default function ThumbList({
           return (
             <div
               key={rect.id}
+              ref={(node) => {
+                cardRefs.current[rect.id] = node
+              }}
               draggable
               className={[
                 'thumb-card',
                 activeRectId === rect.id ? 'active' : '',
-                isDragging   ? 'thumb-dragging'  : '',
-                isDragOver   ? 'thumb-drag-over' : '',
-              ].filter(Boolean).join(' ')}
+                isDragging ? 'thumb-dragging' : '',
+                isDragOver ? 'thumb-drag-over' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onDragStart={(e) => {
                 didDragRef.current = false
                 setDragIndex(index)
@@ -54,7 +66,6 @@ export default function ThumbList({
                 if (dragOverIndex !== index) setDragOverIndex(index)
               }}
               onDragLeave={(e) => {
-                // Only clear if leaving to an element outside this card
                 if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
                   setDragOverIndex(null)
                 }
@@ -77,13 +88,12 @@ export default function ThumbList({
                 didDragRef.current = false
               }}
             >
-              {/* Drag handle — visual affordance, always in top-left */}
               <div className="thumb-drag-handle" title="拖动排序">
-                <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
                   <circle cx="2.5" cy="2.5" r="1.5" />
                   <circle cx="7.5" cy="2.5" r="1.5" />
-                  <circle cx="2.5" cy="7"   r="1.5" />
-                  <circle cx="7.5" cy="7"   r="1.5" />
+                  <circle cx="2.5" cy="7" r="1.5" />
+                  <circle cx="7.5" cy="7" r="1.5" />
                   <circle cx="2.5" cy="11.5" r="1.5" />
                   <circle cx="7.5" cy="11.5" r="1.5" />
                 </svg>
@@ -95,7 +105,7 @@ export default function ThumbList({
                 ) : (
                   <div className="thumb-placeholder">
                     <span className="thumb-spinner" />
-                    <span>截取中</span>
+                    <span>截图中</span>
                   </div>
                 )}
               </div>
@@ -110,7 +120,9 @@ export default function ThumbList({
                     onDelete(rect.id)
                   }}
                 >
-                  🗑
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Z" />
+                  </svg>
                 </button>
               </div>
             </div>

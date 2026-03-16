@@ -12,6 +12,7 @@ export default function App() {
   const [rects, setRects] = useState<RectItem[]>([])
   const [thumbs, setThumbs] = useState<ThumbItem[]>([])
   const [activeRectId, setActiveRectId] = useState<string | null>(null)
+  const [activeRectRequest, setActiveRectRequest] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const fps = useFps()
@@ -76,6 +77,12 @@ export default function App() {
     setRects([])
     setThumbs([])
     setActiveRectId(null)
+    setActiveRectRequest(0)
+  }
+
+  const selectRect = (id: string) => {
+    setActiveRectId(id)
+    setActiveRectRequest((prev) => prev + 1)
   }
 
   const onExport = async () => {
@@ -141,6 +148,7 @@ export default function App() {
           rects={rects}
           setRects={setRects}
           activeRectId={activeRectId}
+          activeRectRequest={activeRectRequest}
           setActiveRectId={setActiveRectId}
           setThumbs={setThumbs}
         />
@@ -149,11 +157,14 @@ export default function App() {
           rects={rects}
           thumbs={thumbs}
           activeRectId={activeRectId}
-          onSelect={setActiveRectId}
+          onSelect={selectRect}
           onDelete={(id) => {
             setRects((prev) => prev.filter((r) => r.id !== id))
             setThumbs((prev) => prev.filter((t) => t.rectId !== id))
-            if (activeRectId === id) setActiveRectId(null)
+            if (activeRectId === id) {
+              setActiveRectId(null)
+              setActiveRectRequest((prev) => prev + 1)
+            }
           }}
           onReorder={(from, to) => {
             setRects((prev) => {

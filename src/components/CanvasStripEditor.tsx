@@ -9,6 +9,7 @@ type Props = {
   rects: RectItem[]
   setRects: React.Dispatch<React.SetStateAction<RectItem[]>>
   activeRectId: string | null
+  activeRectRequest: number
   setActiveRectId: React.Dispatch<React.SetStateAction<string | null>>
   setThumbs: React.Dispatch<React.SetStateAction<ThumbItem[]>>
 }
@@ -58,6 +59,7 @@ export default function CanvasStripEditor({
   rects,
   setRects,
   activeRectId,
+  activeRectRequest,
   setActiveRectId,
   setThumbs,
 }: Props) {
@@ -291,7 +293,7 @@ export default function CanvasStripEditor({
     view.offsetY = Math.max(minOffsetY, Math.min(0, targetOffsetY))
     bgDirtyRef.current = true
     scheduleRender()
-  }, [activeRectId, preview, scheduleRender])
+  }, [activeRectId, activeRectRequest, preview, scheduleRender])
 
   const getLocalPoint = useCallback((e: PointerEvent | MouseEvent | WheelEvent) => {
     const rect = overlayCanvasRef.current!.getBoundingClientRect()
