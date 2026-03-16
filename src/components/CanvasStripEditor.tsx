@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CompositePreview, RectItem, ThumbItem, ViewState } from '../types'
 import { hitTestRect, imageToScreen, normalizeRect, screenToImage, uidRect } from '../utils/rect'
 import { clampRectToBounds } from '../utils/image'
@@ -17,6 +17,12 @@ type ResizeHandle = 'tl' | 'tc' | 'tr' | 'ml' | 'mr' | 'bl' | 'bc' | 'br'
 type DragMode = 'none' | 'create' | 'move' | 'resize'
 
 const MIN_RECT_SIZE = 20
+const AUTO_TEST_COUNT = 50
+const AUTO_TEST_RECT_WIDTH = 900
+const AUTO_TEST_RECT_HEIGHT = 1200
+const AUTO_TEST_RECT_GAP = 300
+const AUTO_TEST_STEP = AUTO_TEST_RECT_HEIGHT + AUTO_TEST_RECT_GAP
+const AUTO_TEST_DELAY_MS = 120
 
 const HANDLE_CURSORS: Record<ResizeHandle, string> = {
   tl: 'nw-resize', tc: 'n-resize', tr: 'ne-resize',
@@ -55,6 +61,7 @@ export default function CanvasStripEditor({
   setActiveRectId,
   setThumbs,
 }: Props) {
+  const [isAutoTesting, setIsAutoTesting] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -81,10 +88,21 @@ export default function CanvasStripEditor({
   const resizingOriginRef = useRef<RectItem | null>(null)
   const hoverRectIdRef = useRef<string | null>(null)
   const activeRectIdRef = useRef<string | null>(activeRectId)
+  const autoTestRunningRef = useRef(false)
+  const autoTestTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     activeRectIdRef.current = activeRectId
   }, [activeRectId])
+
+  useEffect(() => {
+    return () => {
+      autoTestRunningRef.current = false
+      if (autoTestTimerRef.current !== null) {
+        window.clearTimeout(autoTestTimerRef.current)
+      }
+    }
+  }, [])
 
   const rectsRef = useRef<RectItem[]>(rects)
   useEffect(() => {
@@ -506,6 +524,72 @@ export default function CanvasStripEditor({
     setActiveRectId(newRect.id)
   }, [imageSize.height, imageSize.width, preview, setActiveRectId, setRects])
 
+  const onAutoTest = useCallback(() => {
+    if (!preview || autoTestRunningRef.current) return
+
+    const finish = () => {
+      autoTestRunningRef.current = false
+      setIsAutoTesting(false)
+      if (autoTestTimerRef.current !== null) {
+        window.clearTimeout(autoTestTimerRef.current)
+        autoTestTimerRef.current = null
+      }
+    }
+
+    autoTestRunningRef.current = true
+    setIsAutoTesting(true)
+
+    const runStep = (index: number) => {
+      if (!autoTestRunningRef.current) return
+
+      const view = viewRef.current
+      const startY = Math.max(0, -view.offsetY / view.zoom)
+      const centerX = ((containerRef.current?.clientWidth ?? 0) / 2 - view.offsetX) / view.zoom
+      const rect = clampRectToBounds(
+        centerX - AUTO_TEST_RECT_WIDTH / 2,
+        startY,
+        AUTO_TEST_RECT_WIDTH,
+        AUTO_TEST_RECT_HEIGHT,
+        imageSize.width,
+        imageSize.height,
+      )
+
+      if (rect.width < MIN_RECT_SIZE || rect.height < MIN_RECT_SIZE) {
+        finish()
+        return
+      }
+
+      const nextRect: RectItem = { id: uidRect(), ...rect }
+      rectsRef.current = [...rectsRef.current, nextRect]
+      setRects((prev) => [...prev, nextRect])
+      setActiveRectId(nextRect.id)
+      scheduleRender()
+
+      if (index + 1 >= AUTO_TEST_COUNT) {
+        finish()
+        return
+      }
+
+      const nextY = Math.min(
+        Math.max(0, imageSize.height - AUTO_TEST_RECT_HEIGHT),
+        startY + AUTO_TEST_STEP,
+      )
+      if (nextY <= startY) {
+        finish()
+        return
+      }
+
+      autoTestTimerRef.current = window.setTimeout(() => {
+        view.offsetY = -nextY * view.zoom
+        bgDirtyRef.current = true
+        scheduleRender()
+        runStep(index + 1)
+      }, AUTO_TEST_DELAY_MS)
+    }
+
+    runStep(0)
+  }, [imageSize.height, imageSize.width, preview, scheduleRender, setActiveRectId, setRects])
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (!preview) return
     ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
@@ -713,6 +797,9 @@ export default function CanvasStripEditor({
         <div className="editor-toolbar">
           <button className="add-rect-btn" onClick={onAddRect} disabled={!preview}>
             + 新建分镜框
+          </button>
+          <button className="add-rect-btn" onClick={onAutoTest} disabled={!preview || isAutoTesting}>
+            {isAutoTesting ? 'Auto Testing...' : 'Auto Test'}
           </button>
           <span className="toolbar-divider" />
           <span>滚轮滚动</span>
